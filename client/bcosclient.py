@@ -175,6 +175,15 @@ class BcosClient:
         if self.keypair is not None:
             info += ",from address: {}".format(self.keypair.address)
         return info
+    
+    """
+    增加切换群组id函数，外层调用前检查是否超出预设范围
+    """
+    def switch_group(self, groupid):
+        self.groupid = groupid
+        blockNumber = self.getBlockNumber()
+        self.channel_handler.setBlockNumber(blockNumber)
+        self.channel_handler.getBlockNumber(self.groupid)
 
     def is_error_response(self, response):
         if response is None:
@@ -447,7 +456,7 @@ class BcosClient:
         callmap["value"] = 0
 
         # send transaction to the given group
-        params = [client_config.groupid, callmap]
+        params = [self.groupid, callmap]
         # 发送
         response = self.common_request(cmd, params)
         # check status
