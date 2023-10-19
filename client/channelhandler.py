@@ -253,7 +253,7 @@ class ChannelHandler(threading.Thread):
             self.lock.release()
         p = Promise(resolve_promise)
         # default timeout is 60s
-        return p.get(60)
+        return p.get(1) # modified by Kyrin
 
     def make_channel_rpc_request(self, method, params, packet_type=ChannelPack.TYPE_RPC,
                                  response_type=ChannelPack.TYPE_RPC):

@@ -19,12 +19,13 @@ from eth_utils.hexadecimal import decode_hex, encode_hex
 from eth_account.account import Account
 import time
 import os
+import sys
 import json
 import utils.rpc
 from client.common import common
 from client.channelpack import ChannelPack
 from client.channelhandler import ChannelHandler
-from client_config import client_config
+from client_config import client_config, sdk_dir
 from utils.contracts import encode_transaction_data
 from client.stattool import StatTool
 from client.bcoserror import BcosError, ArgumentsError, BcosException
@@ -57,10 +58,11 @@ class BcosClient:
     protocol_list = ["rpc", "channel"]
     sysconfig_keys = ["tx_count_limit", "tx_gas_limit"]
 
-    def __init__(self):
-        self.init()
+    def __init__(self, groupid, ip, port, account_keyfile=client_config.account_keyfile): # modified by Kyrin for multichain client
+        self.init(groupid, ip, port) # modified by Kyrin for multichain client
         self.lastblocknum = 0
         self.lastblocklimittime = 0
+        self.load_default_account(account_keyfile)
 
     def __del__(self):
         """
@@ -69,7 +71,7 @@ class BcosClient:
         self.finish()
 
     # load the account from keyfile
-    def load_default_account(self):
+    def load_default_account(self, account_keyfile):
         if client_config.crypto_type == CRYPTO_TYPE_GM:
             # 加载国密账号
             if self.gm_account is not None:
@@ -93,11 +95,11 @@ class BcosClient:
 
         # 默认的 ecdsa 账号
         try:
-            if self.ecdsa_account is not None:
-                return  # 不需要重复加载
+            # if self.ecdsa_account is not None:
+            #     return  # 不需要重复加载
             # check account keyfile
             self.keystore_file = "{}/{}".format(client_config.account_keyfile_path,
-                                                client_config.account_keyfile)
+                                                account_keyfile)
             if os.path.exists(self.keystore_file) is False:
                 raise BcosException(("keystore file {} doesn't exist, "
                                      "please check client_config.py again "
@@ -116,11 +118,11 @@ class BcosClient:
             raise BcosException("load account from {} failed, reason: {}"
                                 .format(self.keystore_file, e))
 
-    def init(self):
+    def init(self, groupid, ip, port): # modified by Kyrin for multichain client
         try:
             self.blockLimit = 500
             # check chainID
-            common.check_int_range(client_config.groupid, BcosClient.max_group_id)
+            common.check_int_range(groupid, BcosClient.max_group_id)# modified by Kyrin for multichain client
             # check group id
             common.check_int_range(client_config.fiscoChainId, BcosClient.max_chain_id)
             # check protocol
@@ -129,27 +131,35 @@ class BcosClient:
                                     format(''.join(BcosClient.protocol_list)))
 
             self.fiscoChainId = client_config.fiscoChainId
-            self.groupid = client_config.groupid
+            self.groupid = groupid # modified by Kyrin for multichain client
 
             if client_config.client_protocol == client_config.PROTOCOL_RPC \
-                    and client_config.remote_rpcurl is not None:
-                self.rpc = utils.rpc.HTTPProvider(client_config.remote_rpcurl)
+                    and ip is not None and port is not None: # modified by Kyrin for multichain client
+                remote_rpcurl = "http://" + ip +":" + str(port) # modified by Kyrin for multichain client
+                self.rpc = utils.rpc.HTTPProvider(remote_rpcurl) # modified by Kyrin for multichain client
                 self.rpc.logger = self.logger
 
             if client_config.client_protocol == client_config.PROTOCOL_CHANNEL:
-                if os.path.exists(client_config.channel_node_cert) is False:
-                    raise BcosException("{} not found!".format(client_config.channel_node_cert))
-                if os.path.exists(client_config.channel_node_key) is False:
-                    raise BcosException("{} not found!".format(client_config.channel_node_key))
+                sdk_key_dir = sdk_dir + "/bin/sdk_key/" + ip + "/sdk_agency" + chr(64+groupid) # modified by Kyrin for multichain client
+                channel_ca = sdk_key_dir + "/ca.crt" # modified by Kyrin for multichain client
+                channel_node_cert = sdk_key_dir + "/sdk.crt" # modified by Kyrin for multichain client
+                channel_node_key = sdk_key_dir + "/sdk.key" # modified by Kyrin for multichain client
+                if os.path.exists(channel_node_cert) is False: # modified by Kyrin for multichain client
+                    print("here")
+                    raise BcosException("{} not found!".format(channel_node_cert)) # modified by Kyrin for multichain client
+                if os.path.exists(channel_node_key) is False: # modified by Kyrin for multichain client
+                    print("here")
+                    raise BcosException("{} not found!".format(channel_node_key)) # modified by Kyrin for multichain client
 
                 self.channel_handler = ChannelHandler()
                 self.channel_handler.logger = self.logger
-                self.channel_handler.initTLSContext(client_config.channel_ca,
-                                                    client_config.channel_node_cert,
-                                                    client_config.channel_node_key
+                self.channel_handler.initTLSContext(channel_ca, # modified by Kyrin for multichain client
+                                                    channel_node_cert, # modified by Kyrin for multichain client
+                                                    channel_node_key # modified by Kyrin for multichain client
                                                     )
                 self.channel_handler.start_channel(
-                    client_config.channel_host, client_config.channel_port)
+                    # client_config.channel_host, client_config.channel_port) # modified by Kyrin for multichain client
+                    ip, port) # modified by Kyrin for multichain client
                 blockNumber = self.getBlockNumber()
                 self.channel_handler.setBlockNumber(blockNumber)
                 self.channel_handler.getBlockNumber(self.groupid)
@@ -175,6 +185,15 @@ class BcosClient:
         if self.keypair is not None:
             info += ",from address: {}".format(self.keypair.address)
         return info
+    
+    # """
+    # 增加切换群组id函数，外层调用前检查是否超出预设范围
+    # """
+    # def switch_group(self, groupid):
+    #     self.groupid = groupid
+    #     blockNumber = self.getBlockNumber()
+    #     self.channel_handler.setBlockNumber(blockNumber)
+    #     self.channel_handler.getBlockNumber(self.groupid)
 
     def is_error_response(self, response):
         if response is None:
@@ -438,7 +457,7 @@ class BcosClient:
         if to_address != "":
             common.check_and_format_address(to_address)
 
-        self.load_default_account()
+        # self.load_default_account()
         functiondata = encode_transaction_data(fn_name, contract_abi, None, args)
         callmap = dict()
         callmap["data"] = functiondata
@@ -447,7 +466,7 @@ class BcosClient:
         callmap["value"] = 0
 
         # send transaction to the given group
-        params = [client_config.groupid, callmap]
+        params = [self.groupid, callmap]
         # 发送
         response = self.common_request(cmd, params)
         # check status
@@ -500,11 +519,11 @@ class BcosClient:
 
         # load default account if not set .notice: account only use for
         # sign transaction for sendRawTransa# if self.client_account is None:
-        self.load_default_account()
+        # self.load_default_account()
         # 填写一个bcos transaction 的 mapping
         import random
         txmap = dict()
-        txmap["randomid"] = random.randint(0, 1000000000)  # 测试用 todo:改为随机数
+        txmap["randomid"] = random.randint(0, sys.maxsize)  # 测试用 todo:改为随机数
         txmap["gasPrice"] = gasPrice
         txmap["gasLimit"] = gasPrice
         txmap["blockLimit"] = self.getBlockLimit()  # 501  # 测试用，todo：从链上查一下
